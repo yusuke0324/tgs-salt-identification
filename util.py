@@ -4,7 +4,7 @@
 from keras.models import Model
 from keras.layers.core import Dropout, Activation
 from keras.layers.convolutional import Conv2D, Conv2DTranspose
-from keras.layers import Input, Concatenate, RepeatVector, Reshape
+from keras.layers import Input, Concatenate, RepeatVector, Reshape, BatchNormalization, ELU
 from keras.layers.pooling import MaxPooling2D
 import keras.backend as K
 import numpy as np
@@ -14,6 +14,7 @@ import cv2
 
 # src: https://www.kaggle.com/aglotero/another-iou-metric
 def iou_metric(y_true_in, y_pred_in, print_table=False):
+    # This code doesn't deal with no salt mask!!
     labels = y_true_in
     y_pred = y_pred_in
 
@@ -38,6 +39,8 @@ def iou_metric(y_true_in, y_pred_in, print_table=False):
 
     # Compute the intersection over union
     iou = intersection / union
+    print('^^^^^^^^^^^^^^^^^^')
+    print(iou)
 
     # Precision helper function
     def precision_at(threshold, iou):
@@ -216,17 +219,18 @@ def unet_model(input_shape=(128, 128, 3), min_filter_num=16, kernel_size=(3, 3),
     # make the rest of encoders
     encoders = [first_encoder]
 
+    # concat vector feature to 4th convolution block
+    # compute right index for (vec_shape, vec_shape, 1)
+    inner_layer_num = input_shape[0] // vec_shape
+    index = int(np.floor(np.log(inner_layer_num)/np.log(2)))
     for i, filter_num in enumerate(filter_nums[1:]):
         x = _encoder_block(x, filter_num, name='encoder_block_'+str(i+2), strides=strides, kernel_size=kernel_size, dropout=dropout, activation=activation)
         encoders.append(x)
         if not i == (len(filter_nums) - 2):
             x = MaxPooling2D(up_down_size)(x)
 
-        # concat vector feature to 4th convolution block
-        # compute right index for (vec_shape, vec_shape, 1)
-        inner_layer_num = input_shape[0] // vec_shape
-        index = int(np.floor(np.log(inner_layer_num)/np.log(2)))
-        if (i == index) and with_vec:
+        # since i layer is actually (i + 2)th layer
+        if (i == index-2) and with_vec:
             f_repeat = RepeatVector(vec_shape*vec_shape)(input_l_f)
             f_conv = Reshape((vec_shape, vec_shape, 1))(f_repeat)
             x = Concatenate()([f_conv, x])
@@ -257,9 +261,13 @@ def _encoder_block(x, filter_num, name='encoder_block', strides=(1, 1), kernel_s
     Conv -> activation -> dropout -> conv -> activation
     '''
 
-    x = Conv2D(filter_num, kernel_size, strides=strides, name=name, activation=activation, padding='same', kernel_initializer=kernel_initializer)(x)
+    x = Conv2D(filter_num, kernel_size, strides=strides, name=name, padding='same', kernel_initializer=kernel_initializer)(x)
+    # x = BatchNormalization()(x)
+    x = ELU()(x)
     x = Dropout(dropout)(x)
-    x = Conv2D(filter_num, kernel_size, strides=strides, activation=activation, padding='same', kernel_initializer=kernel_initializer)(x)
+    x = Conv2D(filter_num, kernel_size, strides=strides, padding='same', kernel_initializer=kernel_initializer)(x)
+    # x = BatchNormalization()(x)
+    x = ELU()(x)
     # out = MaxPooling2D(down_size)(x)
 
     return x
@@ -270,10 +278,15 @@ def _decoder_block(x, skip_connect, filter_num, name='decoder_block', strides=(1
     transpose conv -> concat skip_connect -> conv -> dropout -> conv
     '''
 
-    x = Conv2DTranspose(filter_num, up_size, strides=up_size, padding='same', activation=activation, name=name)(x)
+    x = Conv2DTranspose(filter_num, up_size, strides=up_size, padding='same', name=name)(x)
+    # x = BatchNormalization()(x)
+    x = ELU()(x)
     x = Concatenate()([x, skip_connect])
-    x = Conv2D(filter_num, kernel_size, strides=strides, padding='same', activation=activation, kernel_initializer=kernel_initializer)(x)
+    x = Conv2D(filter_num, kernel_size, strides=strides, padding='same', kernel_initializer=kernel_initializer)(x)
+    # x = BatchNormalization()(x)
+    x = ELU()(x)
     x = Dropout(dropout)(x)
-    x = Conv2D(filter_num, kernel_size, strides=strides, padding='same', activation=activation, kernel_initializer=kernel_initializer)(x)
-
+    x = Conv2D(filter_num, kernel_size, strides=strides, padding='same', kernel_initializer=kernel_initializer)(x)
+    # x = BatchNormalization()(x)
+    x = ELU()(x)
     return x
