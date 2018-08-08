@@ -21,6 +21,7 @@ import cv2
 from glob import glob
 from keras import backend as K
 from keras.losses import binary_crossentropy
+import keras
 
 import tensorflow as tf
 
@@ -74,6 +75,18 @@ def dice_coef(y_true, y_pred, smooth=1):
     intersection = K.sum(y_true * y_pred, axis=[1,2,3])
     union = K.sum(y_true, axis=[1,2,3]) + K.sum(y_pred, axis=[1,2,3])
     return K.mean( (2. * intersection + smooth) / (union + smooth), axis=0)
+
+def iou_coef(y_true, y_pred, smooth=0.0001, thresh=0.5):
+    """
+    IoU = (|X & Y|)/ (|X or Y|)
+    """
+    # y_true = tf.to_int32(y_true)
+    # y_pred = np.int32(y_pred > K.variable(thresh))
+    y_pred = K.cast(K.greater(y_pred, thresh), K.floatx())
+    intersection = K.sum(K.abs(y_true * y_pred), axis=[1, 2, 3])
+    union = K.sum(y_true,[1, 2, 3]) + K.sum(y_pred, [1, 2, 3]) - intersection
+    return (intersection + smooth) / ( union + smooth)
+
 def dice_p_bce(in_gt, in_pred):
     """combine DICE and BCE"""
     # return 0.01*binary_crossentropy(in_gt, in_pred) - dice_coef(in_gt, in_pred)
@@ -174,7 +187,7 @@ def _make_dir(dir_name):
     if not os.path.exists('dir_name'):
         os.makedirs(dir_name)
 
-def train(model, train_gen, val_gen, steps_per_epoch=None, optimizer='adam', log_dir='./log', epochs=100, loss='binary_crossentropy', metrics=['accuracy'], reduce_lr=True, reduce_lr_factor=0.2, reduce_lr_patience=10):
+def train(model, train_gen, val_gen, steps_per_epoch=None, optimizer='adam', log_dir='./log', epochs=100, loss='binary_crossentropy', metrics=['accuracy'], reduce_lr=True, reduce_lr_factor=0.2, reduce_lr_patience=10, validation_steps=None):
     if steps_per_epoch is None:
         steps_per_epoch = len(train_gen)
 
@@ -188,7 +201,8 @@ def train(model, train_gen, val_gen, steps_per_epoch=None, optimizer='adam', log
     tb_cb = TensorBoard(log_dir=log_dir, histogram_freq=1)
     cp_cb = ModelCheckpoint(filepath=log_dir+'/best_weights.hdf5', monitor='val_loss', verbose=1, save_best_only=True, mode='auto')
     batchLogCallback = LambdaCallback(on_epoch_end=_epochOutput)
-    csv_logger = CSVLogger(log_dir + '/training.log')
+    # csv_logger = CSVLogger(log_dir + '/training.log')
+    csv_logger = AllLogger(log_dir + '/training.log')
     callbacks = [batchLogCallback, csv_logger, cp_cb]
     if reduce_lr:
         callbacks.append(ReduceLROnPlateau(factor=reduce_lr_factor, patience=reduce_lr_patience, verbose=1))
@@ -202,7 +216,34 @@ def train(model, train_gen, val_gen, steps_per_epoch=None, optimizer='adam', log
         verbose=2,
         validation_data=val_gen,
         workers=8,
+        validation_steps=validation_steps,
         callbacks=callbacks,
         )
 
     model.save(log_dir + '/' + str(epochs) + 'epochs_final_save')
+
+class AllLogger(keras.callbacks.Callback):
+
+    def __init__(self, log_file_path):
+        super(AllLogger, self).__init__()
+        self.log_file_path = log_file_path
+
+    def on_train_begin(self, logs={}):
+        self.logs_list = []
+        self.epochs = []
+        # leraning rates
+        self.lrs = []
+    def on_epoch_end(self, epoch, logs={}):
+        self.epochs.append(epoch)
+        # dictionary is mutable and keras is going to modify 'logs' over this training.
+        # so copy logs and then append it to the list.
+        self.logs_list.append(logs.copy())
+        self.lrs.append(K.eval(self.model.optimizer.lr))
+        self.save_logs()
+
+    def save_logs(self):
+        log_df = pd.DataFrame(self.logs_list)
+        epoch_lrs_df = pd.DataFrame({'epoch':self.epochs, 'learning_rate':self.lrs})
+        all_log_df = epoch_lrs_df.merge(log_df, left_index=True, right_index=True)
+        all_log_df.to_csv(self.log_file_path)
+

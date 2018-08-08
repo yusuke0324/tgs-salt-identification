@@ -176,7 +176,7 @@ def show_true_pred(X, Y, pred, row=30, randomed=True):
 
 
 
-def unet_model(input_shape=(128, 128, 3), min_filter_num=16, kernel_size=(3, 3), up_down_size=(2, 2), strides=(1, 1), activation='elu', offset=2, kernel_initializer='he_normal', with_vec=False, dropout=0.5, vec_shape=8):
+def unet_model(input_shape=(128, 128, 3), min_filter_num=16, kernel_size=(3, 3), up_down_size=(2, 2), strides=(1, 1), activation='elu', offset=2, kernel_initializer='he_normal', with_vec=False, dropout=0.5, vec_shape=8, batch_norm=True):
     '''
     U-net model. Encoder - Decoder with skipped connections.
     Arguments
@@ -213,7 +213,7 @@ def unet_model(input_shape=(128, 128, 3), min_filter_num=16, kernel_size=(3, 3),
         input_l_f = Input((1,), name='feature')
 
     # first encoder
-    first_encoder = _encoder_block(input_l, filter_nums[0], strides=strides, kernel_size=kernel_size, dropout=dropout, name='encoder_block_1', activation=activation)
+    first_encoder = _encoder_block(input_l, filter_nums[0], strides=strides, kernel_size=kernel_size, dropout=dropout, name='encoder_block_1', activation=activation, batch_norm=batch_norm)
     x = MaxPooling2D(up_down_size)(first_encoder)
 
     # make the rest of encoders
@@ -224,7 +224,7 @@ def unet_model(input_shape=(128, 128, 3), min_filter_num=16, kernel_size=(3, 3),
     inner_layer_num = input_shape[0] // vec_shape
     index = int(np.floor(np.log(inner_layer_num)/np.log(2)))
     for i, filter_num in enumerate(filter_nums[1:]):
-        x = _encoder_block(x, filter_num, name='encoder_block_'+str(i+2), strides=strides, kernel_size=kernel_size, dropout=dropout, activation=activation)
+        x = _encoder_block(x, filter_num, name='encoder_block_'+str(i+2), strides=strides, kernel_size=kernel_size, dropout=dropout, activation=activation, batch_norm=batch_norm)
         encoders.append(x)
         if not i == (len(filter_nums) - 2):
             x = MaxPooling2D(up_down_size)(x)
@@ -242,7 +242,7 @@ def unet_model(input_shape=(128, 128, 3), min_filter_num=16, kernel_size=(3, 3),
 
     for i, filter_num in enumerate(decoder_filter_nums):
         # [NOTE] first decoder is concated with the second last encoders!
-        x = _decoder_block(x, encoders[-(i+2)], decoder_filter_nums[i], name='decoder_block_'+str(i+1), strides=strides, kernel_size=kernel_size, dropout=dropout, activation=activation)
+        x = _decoder_block(x, encoders[-(i+2)], decoder_filter_nums[i], name='decoder_block_'+str(i+1), strides=strides, kernel_size=kernel_size, dropout=dropout, activation=activation, batch_norm=batch_norm)
 
     # for segmentation, apply sigmoid to every pixel
     outputs = Conv2D(1, (1, 1), activation='sigmoid')(x)
@@ -255,38 +255,38 @@ def unet_model(input_shape=(128, 128, 3), min_filter_num=16, kernel_size=(3, 3),
 
 
 
-def _encoder_block(x, filter_num, name='encoder_block', strides=(1, 1), kernel_size=(3, 3), dropout=0.1, activation='elu', down_size=(2, 2), kernel_initializer='he_normal'):
+def _encoder_block(x, filter_num, name='encoder_block', strides=(1, 1), kernel_size=(3, 3), dropout=0.1, activation='elu', down_size=(2, 2), kernel_initializer='he_normal', batch_norm=True):
     '''
     U-net encoder cnn block
     Conv -> activation -> dropout -> conv -> activation
     '''
 
     x = Conv2D(filter_num, kernel_size, strides=strides, name=name, padding='same', kernel_initializer=kernel_initializer)(x)
-    # x = BatchNormalization()(x)
+    x = BatchNormalization()(x) if batch_norm else x
     x = ELU()(x)
     x = Dropout(dropout)(x)
     x = Conv2D(filter_num, kernel_size, strides=strides, padding='same', kernel_initializer=kernel_initializer)(x)
-    # x = BatchNormalization()(x)
+    x = BatchNormalization()(x) if batch_norm else x
     x = ELU()(x)
-    # out = MaxPooling2D(down_size)(x)
+    x = BatchNormalization()(x) if batch_norm else x
 
     return x
 
-def _decoder_block(x, skip_connect, filter_num, name='decoder_block', strides=(1, 1), kernel_size=(3, 3), dropout=0.1, activation='elu', up_size=(2, 2), kernel_initializer='he_normal'):
+def _decoder_block(x, skip_connect, filter_num, name='decoder_block', strides=(1, 1), kernel_size=(3, 3), dropout=0.1, activation='elu', up_size=(2, 2), kernel_initializer='he_normal', batch_norm=True):
     '''
     U-net decoder cnn block
     transpose conv -> concat skip_connect -> conv -> dropout -> conv
     '''
 
     x = Conv2DTranspose(filter_num, up_size, strides=up_size, padding='same', name=name)(x)
-    # x = BatchNormalization()(x)
+    x = BatchNormalization()(x) if batch_norm else x
     x = ELU()(x)
     x = Concatenate()([x, skip_connect])
     x = Conv2D(filter_num, kernel_size, strides=strides, padding='same', kernel_initializer=kernel_initializer)(x)
-    # x = BatchNormalization()(x)
+    x = BatchNormalization()(x) if batch_norm else x
     x = ELU()(x)
     x = Dropout(dropout)(x)
     x = Conv2D(filter_num, kernel_size, strides=strides, padding='same', kernel_initializer=kernel_initializer)(x)
-    # x = BatchNormalization()(x)
+    x = BatchNormalization()(x) if batch_norm else x
     x = ELU()(x)
     return x
