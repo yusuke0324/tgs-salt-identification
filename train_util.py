@@ -172,28 +172,6 @@ def iou_coef(y_true, y_pred, smooth=0.0001, thresh=0.5):
     union = K.sum(y_true,[1, 2, 3]) + K.sum(y_pred, [1, 2, 3]) - intersection
     return (intersection + smooth) / ( union + smooth)
 
-# it looks like this is not right..
-# def mean_iou(y_true, y_pred):
-#     prec = []
-#     for t in np.arange(0.5, 1.0, 0.05):
-#         y_pred_ = tf.to_int32(y_pred > t)
-#         score, up_opt = tf.metrics.mean_iou(y_true, y_pred_, 2)
-#         K.get_session().run(tf.local_variables_initializer())
-#         with tf.control_dependencies([up_opt]):
-#             score = tf.identity(score)
-#         prec.append(score)
-#     return K.mean(K.stack(prec), axis=0)
-def mean_iou_threshold(y_true, y_pred):
-    '''
-    ref:https://www.kaggle.com/pestipeti/explanation-of-scoring-metric
-    This is for kaggle metrics for PB
-    '''
-    prec_list = []
-    iou = iou_coef(y_true, y_pred)
-    for t in np.arange(0.5, 1.0, 0.05):
-        prec = K.mean(K.cast(K.greater(iou, t), K.floatx()))
-        prec_list.append(prec)
-    return K.mean(K.stack(prec_list), axis=0)
 def dice_p_bce(in_gt, in_pred):
     """combine DICE and BCE"""
     # return 0.01*binary_crossentropy(in_gt, in_pred) - dice_coef(in_gt, in_pred)
@@ -257,6 +235,16 @@ def norm_X_feat(X_feat_train, X_feat_valid):
 
     return X_feat_train, X_feat_valid
 
+def mean_iou(y_true, y_pred):
+    prec = []
+    for t in np.arange(0.5, 1.0, 0.05):
+        y_pred_ = tf.to_int32(y_pred > t)
+        score, up_opt = tf.metrics.mean_iou(y_true, y_pred_, 2)
+        K.get_session().run(tf.local_variables_initializer())
+        with tf.control_dependencies([up_opt]):
+            score = tf.identity(score)
+        prec.append(score)
+    return K.mean(K.stack(prec), axis=0)
 
 def _epochOutput(epoch, logs):
 

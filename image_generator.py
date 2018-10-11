@@ -7,7 +7,7 @@ from imgaug import augmenters as iaa
 import cv2
 
 class Generator(object):
-    def __init__(self, train_ids, depth_dict, val_ids, mask_base_path='./data/train/masks/', image_base_path='./data/train/images/', augment=True, augmenters=None, batch_size=32, size=(128, 128, 3), feature_norm=False, feature_out=True, id_out=False):
+    def __init__(self, train_ids, depth_dict, val_ids, mask_base_path='./data/train/masks/', image_base_path='./data/train/images/', augment=True, augmenters=None, batch_size=32, size=(128, 128, 3)):
         '''
 
         Arguments
@@ -47,9 +47,6 @@ class Generator(object):
         self.val_ids = val_ids
         self.batch_size = batch_size
         self.val_index = 0
-        self.feature_norm = feature_norm
-        self.feature_out = feature_out
-        self.id_out = id_out
 
         # compute train depth mean and std for depth normalization
         train_depth_list = []
@@ -72,7 +69,7 @@ class Generator(object):
             iaa.Sometimes(0.3, iaa.PerspectiveTransform(scale=(0.05, 0.1))),
         ], random_order=True)
 
-            seq = iaa.Sequential([iaa.Sometimes(0.8, affine_seq), iaa.Sometimes(0.5, iaa.Crop(px=(0, 10)))], random_order=False)
+            seq = iaa.Sequential([iaa.Sometimes(0.8, affine_seq), iaa.Sometimes(0.2, iaa.Crop(px=(0, 10)))], random_order=False)
             self.augmenters = seq
         else:
             if augment and augmenters is not None:
@@ -150,10 +147,8 @@ class Generator(object):
             for im_id in ids:
                 # get depth
                 depth = self.depth_dict[im_id]
-                # it looks like original depth value perform better than normed one
-                if self.feature_norm:
-                    depth -= self.depth_mean
-                    depth /= self.depth_std
+                depth -= self.depth_mean
+                depth /= self.depth_std
                 depth_list.append(depth)
                 # load image
                 # neet to be int8 for augmentation
@@ -198,16 +193,7 @@ class Generator(object):
                     masks = np.expand_dims(masks[:, :, :, 0], axis=-1)
                     images =np.array(images, dtype='float32')
                     images /= 255
-                    if self.id_out:
-                        if self.feature_out:
-                            yield [images, depths], masks, ids
-                        else:
-                            yield images, masks, ids
-                    else:
-                        if self.feature_out:
-                            yield [images, depths], masks
-                        else:
-                            yield images, masks
+                    yield [images, depths], masks#, ids
 
 
 
