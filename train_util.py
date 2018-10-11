@@ -23,11 +23,96 @@ from keras import backend as K
 from keras.losses import binary_crossentropy
 import keras
 
+import matplotlib.pyplot as plt
+
 import tensorflow as tf
 
 # from https://www.kaggle.com/c/tgs-salt-identification-challenge/discussion/61720
+# bad masks should be included in the train val data set to make sure the metrics works similar to PB?
 BAD_MASKS =[
-'1eaf42beee','33887a0ae7','33dfce3a76','3975043a11','39cd06da7d','483b35d589','49336bb17b','4ef0559016','4fbda008c7','4fdc882e4b','50d3073821','53e17edd83','5b217529e7','5f98029612','608567ed23','62aad7556c','62d30854d7','6460ce2df7','6bc4c91c27','7845115d01','7deaf30c4a','80a458a2b6','81fa3d59b8','8367b54eac','849881c690','876e6423e6','90720e8172','916aff36ae','919bc0e2ba','a266a2a9df','a6625b8937','a9ee40cf0d','aeba5383e4','b63b23fdc9','baac3469ae','be7014887d','be90ab3e56','bfa7ee102e','bfbb9b9149','c387a012fc','c98dfd50ba','caccd6708f','cb4f7abe67','d0bbe4fd97','d4d2ed6bd2','de7202d286','f0c401b64b','f19b7d20bb','f641699848','f75842e215','00950d1627','0280deb8ae','06d21d76c4','09152018c4','09b9330300','0b45bde756','130229ec15','15d76f1672','182bfc6862','23afbccfb5','24522ec665','285f4b2e82','2bc179b78c','2f746f8726','3cb59a4fdc','403cb8f4b3','4f5df40ab2','50b3aef4c4','52667992f8','52ac7bb4c1','56f4bcc716','58de316918','640ceb328a','71f7425387','7c0b76979f','7f0825a2f0','834861f1b6','87afd4b1ca','88a5c49514','9067effd34','93a1541218','95f6e2b2d1','96216dae3b','96523f824a','99ee31b5bc','9a4b15919d','9b29ca561d','9eb4a10b98','ad2fa649f7','b1be1fa682','b24d3673e1','b35b1b412b','b525824dfc','b7b83447c4','b8a9602e21','ba1287cb48','be18a24c49','c27409a765','c2973c16f1','c83d9529bd','cef03959d8','d4d34af4f7','d9a52dc263','dd6a04d456','ddcb457a07','e12cd094a6','e6e3e58c43','e73ed6e7f2','f6e87c1458','f7380099f6','fb3392fee0','fb47e8e74e','febd1d2a67']
+# '1eaf42beee','33887a0ae7','33dfce3a76','3975043a11','39cd06da7d','483b35d589','49336bb17b','4ef0559016','4fbda008c7','4fdc882e4b','50d3073821','53e17edd83','5b217529e7','5f98029612','608567ed23','62aad7556c','62d30854d7','6460ce2df7','6bc4c91c27','7845115d01','7deaf30c4a','80a458a2b6','81fa3d59b8','8367b54eac','849881c690','876e6423e6','90720e8172','916aff36ae','919bc0e2ba','a266a2a9df','a6625b8937','a9ee40cf0d','aeba5383e4','b63b23fdc9','baac3469ae','be7014887d','be90ab3e56','bfa7ee102e','bfbb9b9149','c387a012fc','c98dfd50ba','caccd6708f','cb4f7abe67','d0bbe4fd97','d4d2ed6bd2','de7202d286','f0c401b64b','f19b7d20bb','f641699848','f75842e215','00950d1627','0280deb8ae','06d21d76c4','09152018c4','09b9330300','0b45bde756','130229ec15','15d76f1672','182bfc6862','23afbccfb5','24522ec665','285f4b2e82','2bc179b78c','2f746f8726','3cb59a4fdc','403cb8f4b3','4f5df40ab2','50b3aef4c4','52667992f8','52ac7bb4c1','56f4bcc716','58de316918','640ceb328a','71f7425387','7c0b76979f','7f0825a2f0','834861f1b6','87afd4b1ca','88a5c49514','9067effd34','93a1541218','95f6e2b2d1','96216dae3b','96523f824a','99ee31b5bc','9a4b15919d','9b29ca561d','9eb4a10b98','ad2fa649f7','b1be1fa682','b24d3673e1','b35b1b412b','b525824dfc','b7b83447c4','b8a9602e21','ba1287cb48','be18a24c49','c27409a765','c2973c16f1','c83d9529bd','cef03959d8','d4d34af4f7','d9a52dc263','dd6a04d456','ddcb457a07','e12cd094a6','e6e3e58c43','e73ed6e7f2','f6e87c1458','f7380099f6','fb3392fee0','fb47e8e74e','febd1d2a67'
+]
+
+def get_best_threshold(y_true, y_pred):
+    '''
+    compute best threshold with threshold IOU metrics
+
+    Arg
+    --------------------------
+        y_true: np array (n, h, w, 1) with value (0, 1)
+        y_pred: np array (n, h, w, 1) with value (0. ~ 1.)
+        threshold: float. threshold for pred mask
+
+    Ret
+    --------------------------
+        threshold value
+    '''
+
+    thresholds = np.linspace(0, 1, 50)
+    ious = np.array([compute_thresh_iou(y_true, y_pred,threshold) for threshold in tqdm(thresholds)])
+
+    threshold_best_index = np.argmax(ious)
+    iou_best = ious[threshold_best_index]
+    threshold_best = thresholds[threshold_best_index]
+    plt.plot(thresholds, ious)
+    plt.plot(threshold_best, iou_best, "xr", label="Best threshold")
+    plt.xlabel("Threshold")
+    plt.ylabel("IoU")
+    plt.title("Threshold vs IoU ({}, {})".format(threshold_best, iou_best))
+    plt.legend(loc='best')
+
+    return threshold_best
+
+def compute_thresh_iou(y_true, y_pred, threshold=0.5):
+    '''
+    compute mean iou with consiferation of no salt mask from all data with threshold
+
+    Arg
+    --------------------------
+        y_true: np array (n, h, w, 1) with value (0, 1)
+        y_pred: np array (n, h, w, 1) with value (0. ~ 1.)
+        threshold: float. threshold for pred mask
+
+    Ret
+    --------------------------
+        mean iou: 0.0 ~ 1.0 float
+    '''
+
+    prec = []
+    ious = compute_iou_w_thresh(y_true, y_pred, threshold = threshold, output_list=True)
+    for iou in ious:
+        prec_each = []
+        for t in np.arange(0.5, 1.0, 0.05):
+            if iou > t:
+                prec_each.append(1)
+            else:
+                prec_each.append(0)
+        prec.append(np.mean(prec_each))
+    return np.mean(prec)
+def compute_iou_w_thresh(y_true, y_pred, threshold=0.5, output_list=False):
+    '''
+    compute mean iou with consiferation of no salt mask from all data with threshold
+
+    Arg
+    --------------------------
+        y_true: np array (n, h, w, 1) with value (0, 1)
+        y_pred: np array (n, h, w, 1) with value (0. ~ 1.)
+        threshold: float. threshold for pred mask
+
+    Ret
+    --------------------------
+        mean iou: 0.0 ~ 1.0 float
+    '''
+    ious = []
+    for i, pred  in enumerate(y_pred):
+        y_pred_t = (pred > threshold).astype(np.uint8)
+        iou = compute_iou(y_true[i], y_pred_t)
+        ious.append(iou)
+
+    if output_list:
+        return ious
+    return np.mean(ious)
+
 
 def compute_iou(y_true, y_pred):
     '''
@@ -112,7 +197,7 @@ def mean_iou_threshold(y_true, y_pred):
 def dice_p_bce(in_gt, in_pred):
     """combine DICE and BCE"""
     # return 0.01*binary_crossentropy(in_gt, in_pred) - dice_coef(in_gt, in_pred)
-    return binary_crossentropy(in_gt, in_pred) + 1 - dice_coef(in_gt, in_pred)
+    return binary_crossentropy(in_gt, in_pred) + 1. - dice_coef(in_gt, in_pred)
 
 def true_positive_rate(y_true, y_pred):
     return K.sum(K.flatten(y_true)*K.flatten(K.round(y_pred)))/K.sum(y_true)

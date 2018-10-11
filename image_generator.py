@@ -78,6 +78,55 @@ class Generator(object):
             if augment and augmenters is not None:
                 self.augmenters = augmenters
 
+    def get_val_data(self):
+        '''
+        this is not generator. This function will return val data set for prediction.
+
+        Return
+        -------------------------
+        images, depths, masks
+
+        '''
+        image_list = []
+        depth_list = []
+        mask_list = []
+
+        for im_id in self.val_ids:
+            # get depth
+            depth = self.depth_dict[im_id]
+            # it looks like original depth value perform better than normed one
+            if self.feature_norm:
+                depth -= self.depth_mean
+                depth /= self.depth_std
+            depth_list.append(depth)
+            # load image
+            # neet to be int8 for augmentation
+            path = self.image_base_path + im_id + '.png'
+            im = cv2.imread(path)
+            im = cv2.resize(im, (self.size[0], self.size[1]))
+            # load mask
+            mask_p = self.mask_base_path + im_id + '.png'
+            mask = cv2.imread(mask_p)
+            # keep 3 channel for augmentation
+            # never interpolation for masks
+            mask = cv2.resize(mask, (self.size[0], self.size[1]), interpolation=cv2.INTER_NEAREST)
+            image_list.append(im)
+            mask_list.append(mask)
+
+        images = np.array(image_list)
+        depths = np.array(depth_list)
+        masks = np.array(mask_list)
+        masks = np.array((masks > 127.5), dtype='float32')
+        # (batch_size, h, w, 3) -> (batch_size, h, w, 1)
+        # never interpolation for masks
+        # this will not work
+        # masks = resize(masks[:, :, :, 0], (self.batch_size, self.size[0], self.size[1], 1), order=0)
+        masks = np.expand_dims(masks[:, :, :, 0], axis=-1)
+        images =np.array(images, dtype='float32')
+        images /= 255
+
+        return images, depths, masks
+
     def generate(self, train=True):
         while True:
             if train:

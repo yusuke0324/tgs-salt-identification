@@ -4,7 +4,7 @@
 from keras.models import Model
 from keras.layers.core import Dropout, Activation
 from keras.layers.convolutional import Conv2D, Conv2DTranspose
-from keras.layers import Input, Concatenate, RepeatVector, Reshape, BatchNormalization, ELU
+from keras.layers import Input, Concatenate, RepeatVector, Reshape, BatchNormalization, ELU, UpSampling2D
 from keras.layers.pooling import MaxPooling2D
 import keras.backend as K
 import numpy as np
@@ -174,7 +174,39 @@ def show_true_pred(X, Y, pred, row=30, randomed=True):
         if counter  > row * 3:
             break
 
+# it looks like this is better and lighter!
+# from :https://www.kaggle.com/dingdiego/u-net-batchnorm-augmentation-stratification
 
+def conv_block(m, dim, acti, bn, res, do=0):
+    n = Conv2D(dim, 3, activation=acti, padding='same')(m)
+    n = BatchNormalization()(n) if bn else n
+    n = Dropout(do)(n) if do else n
+    n = Conv2D(dim, 3, activation=acti, padding='same')(n)
+    n = BatchNormalization()(n) if bn else n
+    return Concatenate()([m, n]) if res else n
+
+def level_block(m, dim, depth, inc, acti, do, bn, mp, up, res):
+    if depth > 0:
+        n = conv_block(m, dim, acti, bn, res)
+        m = MaxPooling2D()(n) if mp else Conv2D(dim, 3, strides=2, padding='same')(n)
+        m = level_block(m, int(inc*dim), depth-1, inc, acti, do, bn, mp, up, res)
+        if up:
+            m = UpSampling2D()(m)
+            m = Conv2D(dim, 2, activation=acti, padding='same')(m)
+        else:
+            m = Conv2DTranspose(dim, 3, strides=2, activation=acti, padding='same')(m)
+        n = Concatenate()([n, m])
+        m = conv_block(n, dim, acti, bn, res)
+    else:
+        m = conv_block(m, dim, acti, bn, res, do)
+    return m
+
+def UNet(img_shape, out_ch=1, start_ch=64, depth=4, inc_rate=2., activation='relu', 
+         dropout=0.5, batchnorm=False, maxpool=True, upconv=True, residual=False):
+    i = Input(shape=img_shape)
+    o = level_block(i, start_ch, depth, inc_rate, activation, dropout, batchnorm, maxpool, upconv, residual)
+    o = Conv2D(out_ch, 1, activation='sigmoid')(o)
+    return Model(inputs=i, outputs=o)
 
 def unet_model(input_shape=(128, 128, 3), min_filter_num=16, kernel_size=(3, 3), up_down_size=(2, 2), strides=(1, 1), activation='elu', offset=2, kernel_initializer='he_normal', with_vec=False, dropout=0.5, vec_shape=8, batch_norm=True):
     '''
@@ -262,11 +294,11 @@ def _encoder_block(x, filter_num, name='encoder_block', strides=(1, 1), kernel_s
     '''
 
     x = Conv2D(filter_num, kernel_size, strides=strides, name=name, padding='same', kernel_initializer=kernel_initializer)(x)
-    x = BatchNormalization()(x) if batch_norm else x
     x = ELU()(x)
+    x = BatchNormalization()(x) if batch_norm else x
     x = Dropout(dropout)(x)
     x = Conv2D(filter_num, kernel_size, strides=strides, padding='same', kernel_initializer=kernel_initializer)(x)
-    x = BatchNormalization()(x) if batch_norm else x
+    # x = BatchNormalization()(x) if batch_norm else x
     x = ELU()(x)
     x = BatchNormalization()(x) if batch_norm else x
 
@@ -279,14 +311,14 @@ def _decoder_block(x, skip_connect, filter_num, name='decoder_block', strides=(1
     '''
 
     x = Conv2DTranspose(filter_num, up_size, strides=up_size, padding='same', name=name)(x)
-    x = BatchNormalization()(x) if batch_norm else x
     x = ELU()(x)
+    x = BatchNormalization()(x) if batch_norm else x
     x = Concatenate()([x, skip_connect])
     x = Conv2D(filter_num, kernel_size, strides=strides, padding='same', kernel_initializer=kernel_initializer)(x)
-    x = BatchNormalization()(x) if batch_norm else x
     x = ELU()(x)
+    x = BatchNormalization()(x) if batch_norm else x
     x = Dropout(dropout)(x)
     x = Conv2D(filter_num, kernel_size, strides=strides, padding='same', kernel_initializer=kernel_initializer)(x)
-    x = BatchNormalization()(x) if batch_norm else x
     x = ELU()(x)
+    x = BatchNormalization()(x) if batch_norm else x
     return x
